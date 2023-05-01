@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import networkx as nx
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import ListedColormap
 from queue import PriorityQueue
@@ -9,16 +10,20 @@ import random
 import utm
 
 
+
+
 class GridMapSimulator:
-    def __init__(self, resolution, map_width, map_height, targets, init_gps, lidar_range=1, num_initial_obstacles=20, obstacle_memory=4, interval=200):
+    def __init__(self, resolution, map_width, map_height, targets, init_gps,
+                 lidar_range=1, num_initial_obstacles=20, obstacle_memory=4, interval=200, path_always_exists=True):
         self.resolution = resolution
         self.map_width = map_width
         self.map_height = map_height
         self.interval = interval
         self.ani = None
         self.path_plot = None  # Add an attribute to store the path plot
-        self.map = np.zeros((self.map_height, self.map_width))  # use a numpy array to represent the map
+
         self.targets = targets
+        self.map = self._create_map()
         self.current_target_index = 0
         self.target_x, self.target_y = targets[self.current_target_index]
 
@@ -30,34 +35,80 @@ class GridMapSimulator:
         self.rover_x, self.rover_y = gps_to_grid_coordinates(init_lat, init_lon, min_utm_x, min_utm_y, max_utm_x, max_utm_y)
 
         self.lidar_range = lidar_range
+        # this flag determines whether we ensure a path always exists to the target when we generate obstacles (WARNING: it slows down obstacle generation by several seconsd)
+        self.path_always_exists = path_always_exists
         self.generate_initial_obstacles(num_initial_obstacles)
         self.obstacle_memory = obstacle_memory
         self.detect_obstacle()
 
+
+    def _create_map(self):
+        G = nx.grid_2d_graph(self.map_width, self.map_height)
+
+        # Add diagnol edges and also the attributes for each node
+        for node in G.nodes:
+            G.nodes[node]['obstacle'] = False
+            G.nodes[node]['obstacle_memory'] = 0
+            G.nodes[node]['target'] = False
+
+            x, y = node
+
+            if x > 0:
+                G.add_edge(node, (x-1, y))
+            if x < self.map_width - 1:
+                G.add_edge(node, (x+1, y))
+            if y > 0:
+                G.add_edge(node, (x, y-1))
+            if y < self.map_height - 1:
+                G.add_edge(node, (x, y+1))
+
+        # Add the targets
+        for target_x, target_y in self.targets:
+            G.nodes[(target_x, target_y)]['target'] = True
+
+        return G
+
+    def _map_2_img(self):
+        map_img = np.ones((self.map_height, self.map_width), dtype=np.float32)
+
+        # the background is white, obstacles that haven't been seen are light gray, and obstacles that have been seen are black (but get lighter over time)
+        for node in self.map.nodes:
+            x, y = node
+            if self.map.nodes[node]['obstacle']:
+                map_img[y, x] = .5 - (self.map.nodes[node]['obstacle_memory'] / self.obstacle_memory) * .5
+
+        return map_img
+
     def generate_initial_obstacles(self, num_obstacles):
+        print(f'Generating {num_obstacles} obstacles...')
         cur_obstacles = 0
         while cur_obstacles < num_obstacles:
             x = np.random.randint(0, self.map_width)
             y = np.random.randint(0, self.map_height)
-            if not self.map[y, x] < -1 and (x, y) not in self.targets:
-                cur_obstacles += 1
-                self.map[y, x] = -1
 
+            # We randomly generate an obstacle, but we also have to make sure that it's not on top of the rover, it's target, or another obstacle
+            if not self.map.nodes[(x, y)]['obstacle'] and not self.map.nodes[(x, y)]['target'] and not (x == self.rover_x and y == self.rover_y):
+                self.map.nodes[(x, y)]['obstacle'] = True
+                cur_obstacles += 1
+
+            if self.path_always_exists:
+                # Also, we want to make sure that we have a path to each target, although this code drastically slows down the simulation creation, not sure how to make it faster
+                for target_x, target_y in self.targets:
+                    path = self.find_path(self.rover_x, self.rover_y, target_x, target_y)
+                    if path is None:
+                        self.map.nodes[(x, y)]['obstacle'] = False
+                        cur_obstacles -= 1
+                        break
 
     def init_visualization(self):
         self.fig, self.ax = plt.subplots()
         self.ax.set_title("Grid Map")
-        self.path_line, = self.ax.plot([], [], color='lime')
         self.path_plot, = self.ax.plot([], [], color='red', linestyle='-')
+        self.path_line, = self.ax.plot([], [], color='lime')
 
-        colors = ['black', 'gray', 'white']
-        # now we want bounds so that anything below -1 is black, -1 is gray, and anything above -1 is white
-        bounds = [-2 - self.obstacle_memory, -1, 0, 1]
-        print(bounds)
-        cmap = ListedColormap(colors)
-        norm = plt.cm.colors.BoundaryNorm(bounds, cmap.N)
+
         self.ani = FuncAnimation(self.fig, animate, fargs=(self,), interval=self.interval)
-        self.grid_img = self.ax.imshow(self.map, origin='lower', cmap=cmap, norm=norm)
+        self.grid_img = self.ax.imshow(self._map_2_img(), origin='lower', cmap='gray', vmin=0, vmax=1)
 
         # Add the initial position of the rover as a red dot
         arrow_length = 1
@@ -71,7 +122,6 @@ class GridMapSimulator:
             target_dot = self.ax.scatter(target_x, target_y, c='blue')
             self.ax.text(target_x + 0.5, target_y + 0.5, str(i + 1), fontsize=12, color='blue')
             self.target_dots.append(target_dot)
-
 
 
     def update_visualization(self, target_x, target_y):
@@ -94,8 +144,8 @@ class GridMapSimulator:
 
         self.ax.add_patch(self.rover_arrow)
 
-        self.map[self.rover_y, self.rover_x] = 1
-        self.grid_img.set_data(self.map)
+
+        self.grid_img.set_data(self._map_2_img())
 
         # Check if the rover has reached the target position
         if self.rover_x == target_x and self.rover_y == target_y:
@@ -107,61 +157,26 @@ class GridMapSimulator:
 
 
     def find_path(self, start_x, start_y, goal_x, goal_y):
-        def heuristic(a, b):
-            dx = abs(b[0] - a[0])
-            dy = abs(b[1] - a[1])
-            return (dx + dy) + (np.sqrt(2) - 2) * min(dx, dy)
-
-        frontier = PriorityQueue()
-        frontier.put((0, (start_x, start_y)))
-        came_from = {}
-        cost_so_far = {}
-        came_from[(start_x, start_y)] = None
-        cost_so_far[(start_x, start_y)] = 0
-
-        while not frontier.empty():
-            current = frontier.get()[1]
-
-            if current == (goal_x, goal_y):
-                path = [current]
-                while current != (start_x, start_y):
-                    current = came_from[current]
-                    path.append(current)
-                return path[::-1]
-
-            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1)]:
-                neighbor = (current[0] + dx, current[1] + dy)
-
-                if neighbor[0] < 0 or neighbor[0] >= self.map_width or neighbor[1] < 0 or neighbor[1] >= self.map_height:
-                    continue
-
-                if (dx != 0 and dy != 0) and (self.map[current[1], current[0] + dx] < -1 or self.map[current[1] + dy, current[0]] < -1):
-                    continue
-
-                if self.map[neighbor[1], neighbor[0]] < -1:
-                    continue
-
-                new_cost = cost_so_far[current] + 1
-                if neighbor not in cost_so_far or new_cost < cost_so_far[neighbor]:
-                    cost_so_far[neighbor] = new_cost
-                    priority = new_cost + heuristic((goal_x, goal_y), neighbor)
-                    frontier.put((priority, neighbor))
-                    came_from[neighbor] = current
-
-        return None
+        try:
+            path = nx.astar_path(self.map, (start_x, start_y), (goal_x, goal_y), heuristic=astar_heuristic,
+                                 weight=lambda u, v, d: None if self.map.nodes[v]['obstacle'] else 1) # if the weight is None, then astar treats the edge as untraversable
+            return path
+        except nx.exception.NetworkXNoPath:
+            return None
 
 
     def detect_obstacle(self):
-        # reduce the memory of all the obstacles currently seen (anything with a counter less than -1)
-        self.map[self.map < -1] += 1
+        # reduce the memory of all the obstacles currently seen
+        for node in self.map.nodes:
+            if self.map.nodes[node]['obstacle']:
+                self.map.nodes[node]['obstacle_memory'] = max(self.map.nodes[node]['obstacle_memory'] - 1, 0)
 
-        # now, simulate checking for obstacles in the 8 directions around the rover
-        # this line gets a subarray of the map that is 3x3 (when lidar range is 1, 5x5 for lidar range 2, etc)
-        # centered on the rover, using max and min to make sure we don't go out of bounds
-
-        nearby_map = self.map[max(self.rover_y - self.lidar_range, 0):min(self.rover_y +  self.lidar_range + 1, self.map_height),
-                                max(self.rover_x - self.lidar_range, 0):min(self.rover_x +  self.lidar_range + 1, self.map_width)]
-        nearby_map[nearby_map <= -1] = -1 - self.obstacle_memory
+        # now, simulate checking for obstacles in the 8 directions around the rover (up to the lidar range)
+        for i in range(max(0, self.rover_x - self.lidar_range), min(self.map_width, self.rover_x + self.lidar_range)):
+            for j in range(max(0, self.rover_y - self.lidar_range), min(self.map_height, self.rover_y + self.lidar_range)):
+                if self.map.nodes[(i, j)]['obstacle']:
+                    # if there is an obstacle, update the obstacle memory
+                    self.map.nodes[(i, j)]['obstacle_memory'] = self.obstacle_memory
 
 
 
@@ -190,7 +205,6 @@ class GridMapSimulator:
             print(f"Turned to angle {np.degrees(self.rover_direction)}")
 
         print("Moved to position ({}, {})".format(new_x, new_y))
-        self.map[self.rover_y, self.rover_x] = 0  # Clear the old rover's position
         self.rover_x, self.rover_y = new_x, new_y
 
         # Add the new position to the path plot
@@ -210,6 +224,10 @@ class GridMapSimulator:
             else:
                 print("All targets reached!")
 
+def astar_heuristic(a, b):
+    dx = abs(b[0] - a[0])
+    dy = abs(b[1] - a[1])
+    return (dx + dy) + (np.sqrt(2) - 2) * min(dx, dy)
 
 
 # Example usage
@@ -266,11 +284,11 @@ for i in range(len(GPSList)):
 
 
 resolution = 1
-lidar_range = 1 # this is how many squares away the rover can see an obstacle
+lidar_range = 2 # this is how many squares away the rover can see an obstacle
 map_width = 30
 map_height = 30
-initial_obstacles = 100
-obstacle_memory = 12 # this is the number of frames that an obstacle is remembered/included in the astar search after it was detected.
+initial_obstacles = 300
+obstacle_memory = 16 # this is the number of frames that an obstacle is remembered/included in the astar search after it was detected.
 animation_speed = 100
 num_targets = 3
 
