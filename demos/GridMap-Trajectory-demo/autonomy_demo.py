@@ -32,7 +32,7 @@ class GridMapSimulator:
 
         # Set the initial position based on the provided GPS coordinate
         init_lon, init_lat = init_gps
-        self.rover_x, self.rover_y = gps_to_grid_coordinates(init_lat, init_lon, min_utm_x, min_utm_y, max_utm_x, max_utm_y)
+        self.rover_x, self.rover_y = gps_to_grid_coordinates(init_lat, init_lon, min_utm_x, min_utm_y, resolution)
 
         self.lidar_range = lidar_range
         # this flag determines whether we ensure a path always exists to the target when we generate obstacles (WARNING: it slows down obstacle generation by several seconsd)
@@ -159,7 +159,7 @@ class GridMapSimulator:
     def find_path(self, start_x, start_y, goal_x, goal_y):
         try:
             path = nx.astar_path(self.map, (start_x, start_y), (goal_x, goal_y), heuristic=astar_heuristic,
-                                 weight=lambda u, v, d: None if self.map.nodes[v]['obstacle'] else 1) # if the weight is None, then astar treats the edge as untraversable
+                                 weight=lambda u, v, d: None if self.map.nodes[v]['obstacle_memory'] > 0 else 1) # if the weight is None, then astar treats the edge as untraversable (note: the distance doesn't actually matter)
             return path
         except nx.exception.NetworkXNoPath:
             return None
@@ -245,13 +245,17 @@ def generate_random_targets(num_targets, map_width, map_height):
     return random_targets
 
 
-def gps_to_grid_coordinates(lat, lon, min_utm_x, min_utm_y, max_utm_x, max_utm_y):
+def gps_to_grid_coordinates(lat, lon, min_utm_x, min_utm_y, resolution):
+
     utm_x, utm_y, _, _ = utm.from_latlon(lat, lon)
-    normalized_x = (utm_x - min_utm_x) / (max_utm_x - min_utm_x)
-    normalized_y = (utm_y - min_utm_y) / (max_utm_y - min_utm_y)
-    x = int((normalized_x * (map_width - 1)) + 0.5)
-    y = int((normalized_y * (map_height - 1)) + 0.5)
+
+    diff_x, diff_y = utm_x - min_utm_x, utm_y - min_utm_y
+
+    x, y = int(diff_x / resolution), int(diff_y / resolution)
+
     return x, y
+
+RESOLUTION = 1 / 2 # if we break the map up into squares, this is the length of each side of a square in meters
 
 # Made from https://www.gpsvisualizer.com/draw/
 GPSList = [
@@ -265,8 +269,6 @@ GPSList = [
     [-121.881935, 37.337250],
 ]
 
-map_width = 25
-map_height = 25
 coordinate_list = []
 
 # Convert GPS to UTM and find the min and max UTM coordinates
@@ -274,30 +276,41 @@ utm_coords = [utm.from_latlon(lat, lon)[:2] for lon, lat in GPSList]
 min_utm_x, min_utm_y = map(min, zip(*utm_coords))
 max_utm_x, max_utm_y = map(max, zip(*utm_coords))
 
+x_diff = max_utm_x - min_utm_x
+y_diff = max_utm_y - min_utm_y
+
+# add a buffer of 20% to the map (10% on each side)
+min_utm_x, min_utm_y = min_utm_x - x_diff * 0.1, min_utm_y - y_diff * 0.1
+max_utm_x, max_utm_y = max_utm_x + x_diff * 0.1, max_utm_y + y_diff * 0.1
+
 for i in range(len(GPSList)):
     lon, lat = GPSList[i]
-    x, y = gps_to_grid_coordinates(lat, lon, min_utm_x, min_utm_y, max_utm_x, max_utm_y)
+    x, y = gps_to_grid_coordinates(lat, lon, min_utm_x, min_utm_y, RESOLUTION)
     coordinate_list.append((x, y))
     print("grid point", x, y)
 
 
+map_width = int((max_utm_x - min_utm_x) / RESOLUTION)
+map_height = int((max_utm_y - min_utm_y) / RESOLUTION)
 
+#  just for this simulation, make it square
+map_width = map_height = max(map_width, map_height)
 
-resolution = 1
 lidar_range = 2 # this is how many squares away the rover can see an obstacle
-map_width = 30
-map_height = 30
-initial_obstacles = 300
-obstacle_memory = 16 # this is the number of frames that an obstacle is remembered/included in the astar search after it was detected.
-animation_speed = 100
+
+initial_obstacles = map_width * map_height // 3 # place obstacles so that it takes up, say, 1/3 of the map
+path_always_exists = False
+obstacle_memory = 32 # this is the number of frames that an obstacle is remembered/included in the astar search after it was detected.
+animation_speed = 75
 num_targets = 3
 
 init_gps = [-121.881935, 37.337250]
-grid_map = GridMapSimulator(resolution, map_width, map_height, coordinate_list, init_gps,
+grid_map = GridMapSimulator(RESOLUTION, map_width, map_height, coordinate_list, init_gps,
                             lidar_range=lidar_range,
                             num_initial_obstacles=initial_obstacles,
                             obstacle_memory=obstacle_memory,
-                            interval=animation_speed)
+                            interval=animation_speed,
+                            path_always_exists=path_always_exists)
 target_x, target_y = coordinate_list[grid_map.current_target_index]
 grid_map.init_visualization()
 plt.show()
