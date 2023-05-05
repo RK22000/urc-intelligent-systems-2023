@@ -54,25 +54,18 @@ class GridMapSimulator:
         diagonal_weight = np.sqrt(2) * self.resolution
 
         # Add diagonal edges and also the attributes for each node
-        for node in G.nodes:
+        for node in G.nodes: # investigate this, make sure it's actually creating the edges because the path never goes diagonally
             G.nodes[node]['obstacle'] = False
             G.nodes[node]['obstacle_memory'] = 0
             G.nodes[node]['target'] = False
 
             x, y = node
 
-            if x > 0:
-                G.add_edge(node, (x - 1, y))
-                G.edges[node, (x - 1, y)]['weight'] = diagonal_weight
-            if x < self.map_width - 1:
-                G.add_edge(node, (x + 1, y))
-                G.edges[node, (x + 1, y)]['weight'] = diagonal_weight
-            if y > 0:
-                G.add_edge(node, (x, y - 1))
-                G.edges[node, (x, y - 1)]['weight'] = diagonal_weight
-            if y < self.map_height - 1:
-                G.add_edge(node, (x, y + 1))
-                G.edges[node, (x, y + 1)]['weight'] = diagonal_weight
+            #  we add nodes diagonally from the top row downward
+            if x > 0 and y < self.map_height - 1:
+                G.add_edge(node, (x - 1, y + 1), weight=diagonal_weight)
+            if x < self.map_width - 1 and y < self.map_height - 1:
+                G.add_edge(node, (x + 1, y + 1), weight=diagonal_weight)
 
         # Add the targets
         for target_x, target_y in self.targets:
@@ -90,6 +83,20 @@ class GridMapSimulator:
                 map_img[y, x] = .5 - (self.map.nodes[node]['obstacle_memory'] / self.obstacle_memory) * .5
 
         return map_img
+
+    def _astar_weight_fn(self, u, v, d):
+        # this checks if the destination node is a visible obstacle, and if it is, it returns None so that the edge is ignored
+        if self.map.nodes[v]['obstacle_memory'] > 0:
+            return None
+        else:
+            # this handles a special case when the edge is diagonal. Imagine the following scenario, where u and v aren't obstacles, and O is an obstacle:
+            # O u
+            # v O
+            # In this case, we don't want to allow the rover to 'hop' over the obstacles by going diagonally
+            if self.map.nodes[u[0], v[1]]['obstacle_memory'] > 0 and self.map.nodes[v[0], u[1]]['obstacle_memory'] > 0:
+                return None
+            else: # otherwise, we return the weight of the edge
+                return d['weight']
 
     def generate_initial_obstacles(self, num_obstacles):
         print(f'Generating {num_obstacles} obstacles...')
@@ -205,7 +212,7 @@ class GridMapSimulator:
     def find_path(self, start_x, start_y, goal_x, goal_y):
         try:
             path = nx.astar_path(self.map, (start_x, start_y), (goal_x, goal_y), heuristic=astar_heuristic,
-                                 weight=lambda u, v, d: None if self.map.nodes[v]['obstacle_memory'] > 0 else d['weight']) # if the weight is None, then astar treats the edge as untraversable (note: the distance doesn't actually matter)
+                                 weight=self._astar_weight_fn) # if the weight is None, then astar treats the edge as untraversable (note: the distance doesn't actually matter)
             return path
         except nx.exception.NetworkXNoPath:
             return None
@@ -344,7 +351,7 @@ map_width = map_height = max(map_width, map_height)
 
 lidar_range = 2 # this is how many squares away the rover can see an obstacle
 
-initial_obstacles = map_width * map_height // 4 # place obstacles so that it takes up, say, 1/3 of the map
+initial_obstacles = map_width * map_height // 3 # place obstacles so that it takes up, say, 1/3 of the map
 path_always_exists = False
 obstacle_memory = 32 # this is the number of frames that an obstacle is remembered/included in the astar search after it was detected.
 animation_speed = 100

@@ -75,18 +75,11 @@ class GridMap:
 
             x, y = node
 
-            if x > 0:
-                G.add_edge(node, (x-1, y))
-                G.edges[node, (x-1, y)]['weight'] = diagonal_weight
-            if x < self.map_width - 1:
-                G.add_edge(node, (x+1, y))
-                G.edges[node, (x+1, y)]['weight'] = diagonal_weight
-            if y > 0:
-                G.add_edge(node, (x, y-1))
-                G.edges[node, (x, y-1)]['weight'] = diagonal_weight
-            if y < self.map_height - 1:
-                G.add_edge(node, (x, y+1))
-                G.edges[node, (x, y+1)]['weight'] = diagonal_weight
+            #  we add nodes diagonally from the top row downward
+            if x > 0 and y < self.map_height - 1:
+                G.add_edge(node, (x - 1, y + 1), weight=diagonal_weight)
+            if x < self.map_width - 1 and y < self.map_height - 1:
+                G.add_edge(node, (x + 1, y + 1), weight=diagonal_weight)
 
         # Add the targets
         for target_x, target_y in self.targets:
@@ -94,11 +87,19 @@ class GridMap:
 
         return G
 
-    def _weight_fn(self, u, v, d):
+    def _astar_weight_fn(self, u, v, d):
+        # this checks if the destination node is a visible obstacle, and if it is, it returns None so that the edge is ignored
         if self.map.nodes[v]['obstacle_memory'] > 0:
-            return None # if we return none, the edge will be ignored
+            return None
         else:
-            return d['weight']
+            # this handles a special case when the edge is diagonal. Imagine the following scenario, where u and v aren't obstacles, and O is an obstacle:
+            # O u
+            # v O
+            # In this case, we don't want to allow the rover to 'hop' over the obstacles by going diagonally
+            if self.map.nodes[u[0], v[1]]['obstacle_memory'] > 0 and self.map.nodes[v[0], u[1]]['obstacle_memory'] > 0:
+                return None
+            else: # otherwise, we return the weight of the edge
+                return d['weight']
 
     def gps_to_grid_coordinates(self, lat, lon):
         """
@@ -129,7 +130,7 @@ class GridMap:
 
         try:
             path = nx.astar_path(self.map, self.rover_position, (goal_x, goal_y), heuristic=astar_heuristic,
-                                 weight=self._weight_fn)
+                                 weight=self._astar_weight_fn)
             return path
         except nx.exception.NetworkXNoPath:
             return None
@@ -170,11 +171,13 @@ if __name__ == '__main__':
     grid_map = GridMap(resolution, GPSList, rover_gps)
     path = grid_map.get_path_to(GPSList[0][0], GPSList[0][1])
     print(path)
-    assert len(path) == 9, f'Path should be 9 nodes long, got {len(path)}, check to make sure the path is correct'
+    assert len(path) == 7, f'Path should be 5 nodes long, got {len(path)}, check to make sure the path is correct'
 
     # move the rover to the first lat/lon coordinate and get the path to the 2nd lat/lon coordinate
     grid_map.update_rover(GPSList[0][0], GPSList[0][1])
     path = grid_map.get_path_to(GPSList[1][0], GPSList[1][1])
     print(path)
-    assert len(path) == 26, f'Path should be 26 nodes long, got {len(path)}, check to make sure the path is correct'
+    assert len(path) == 22, f'Path should be 21 nodes long, got {len(path)}, check to make sure the path is correct'
+
+
 
