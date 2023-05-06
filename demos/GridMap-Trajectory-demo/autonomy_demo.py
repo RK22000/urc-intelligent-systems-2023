@@ -176,23 +176,24 @@ class GridMapSimulator:
         return [self.grid_img, self.rover_arrow, *self.target_dots, self.path_plot]
     
     def follow_path(self, path):
-        commands = []
-        for i in range(len(path) - 1):
-            command = []
-            start_x, start_y = path[i]
-            end_x, end_y = path[i + 1]
+        command = []
+        if path is not None and len(path) > 1:
+            # we can only follow one command at a time, and after each command is completed, the path may change, so only look at the next one
+            start_x, start_y = path[0]
+            end_x, end_y = path[1]
 
             # Calculate the angle and distance between the start and end points
             dx = end_x - start_x
             dy = end_y - start_y
             #distance = ((dx ** 2) + (dy ** 2)) ** 0.5
-            angle = (180 / 3.14159) * (3.14159 / 2 - math.atan2(dy, dx))
+            angle = np.arctan2(dy, dx)
+            change_in_angle = np.degrees(angle - self.rover_direction)
 
             # Set the speed and angle to default values
             speed = 1
 
             # Set the drive mode based on the direction of the movement
-            if angle < 150:
+            if change_in_angle < 150:
                 mode = 'D'
             else:
                 mode = 'S'
@@ -200,12 +201,11 @@ class GridMapSimulator:
             # Update the command list with the new values
             command.append(mode)
             command.append(speed)
-            command.append(angle)
-            commands.append(command)
+            command.append(change_in_angle)
 
         # Send the updated command to the rover
-        print(commands)
-        return commands
+        print(command)
+        return command
 
 
     def find_path(self, start_x, start_y, goal_x, goal_y):

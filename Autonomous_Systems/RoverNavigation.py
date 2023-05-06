@@ -19,7 +19,7 @@ import numpy as np
 import json
 from math import atan2, sqrt, pi
 from numpy import linalg as la
-from Autonomous_Systems import GridMap
+from Autonomous_Systems.GridMap import GridMap
 
 class KalmanFilter:
     def __init__(self, dt):
@@ -52,11 +52,11 @@ class KalmanFilter:
         return x
 
 class RoverNavigation:
-    def __init__(self, max_speed, max_steering, GPS, IMU, GPS_coordinate_map):
+    def __init__(self, max_speed, max_steering, GPS, IMU, GPS_coordinate_map, map_resolution=.5):
         self._initialize_constants(max_speed,max_steering)
         self._initialize_sensors(GPS,IMU,GPS_coordinate_map)
         self._initialize_controllers()
-        self._initialize_mapping()
+        self._initialize_mapping(map_resolution)
 
     def _initialize_constants(self, max_speed, max_steering):
         """Initialize constants that are tied to Rover Controls
@@ -82,14 +82,11 @@ class RoverNavigation:
         self.AutoHelp = AutoHelp.AutoHelp()
         self.filter = KalmanFilter(dt=0.1)
     
-    def _initialize_mapping(self):
+    def _initialize_mapping(self, resolution):
         """ Initialize the map that will be used to track the rover's current position
          
         """
-        self.position = np.array([0, 0, 0, 0])  # x, y, vx, vy
-        self.map = GridMap(width=100, height=100, resolution=0.5)
-        # self.path = [(10, 20), (30, 40), (50, 60)]
-        self.path = [(10, 20), (30, 40), (20, 50), (60, 80), (90, 70), (100, 90)]
+        self.map = GridMap(resolution, self.GPS_coordinate_map, self.GPS.get_position())
 
 
     def _initialize_controllers(self):
@@ -153,119 +150,38 @@ class RoverNavigation:
             print("No more GPS coordniates in Mission... Mission Success!")
             exit(1)
             
-    def follow_path(self, path):
-        commands = []
-        for i in range(len(path) - 1):
-            start_x, start_y = path[i]
-            end_x, end_y = path[i + 1]
+    def path_to_command(self, path, current_heading):
+        """Takes a path (list of (x, y) coordinates and turns it into a command for the rover.
+        If the path is too short (only one coordinate), returns the Stop command"""
+
+        command = []
+        if path is not None and len(path) > 1:
+            # we can only follow one command at a time, and after each command is completed, the path may change, so only look at the next one
+            start_x, start_y = path[0]
+            end_x, end_y = path[1]
 
             # Calculate the angle and distance between the start and end points
             dx = end_x - start_x
             dy = end_y - start_y
-            #distance = ((dx ** 2) + (dy ** 2)) ** 0.5
-            angle = (180 / 3.14159) * (3.14159 / 2 - atan2(dy, dx))
+
+            angle = np.arctan2(dy, dx)
+            change_in_angle = int(np.degrees(angle) - current_heading) # rover expects angle in degrees and integers
 
             # Set the speed and angle to default values
             speed = 1
 
             # Set the drive mode based on the direction of the movement
-            if angle < 150:
+            if change_in_angle < 150:
                 mode = 'D'
             else:
                 mode = 'S'
 
-            # Update the command list with the new values
-            self.commands[3] = mode
-            self.commands[4] = speed
-            self.commands[5] = angle
-            commands.append(self.commands)
+            command.append(mode)
+            command.append(speed)
+            command.append(change_in_angle)
 
-        # Send the updated command to the rover
-        return commands
+        return command
 
-
-
-
-    # def update_position(self):
-    #     # Get GPS and IMU data
-    #     gps_data = self.GPS.get_position()
-
-    #     # Update position using Kalman filter
-    #     z = np.array([[gps_data[0]], [gps_data[1]]])
-    #     self.position = self.filter.predict(self.position)
-    #     self.position = self.filter.update(self.position, z)
-
-    #     # Update map using SLAM
-    #     self.map.update(self.position[0], self.position[1])
-
-    #     # Plan path using A* algorithm
-    #     start = (int(self.position[0] / self.map.resolution), int(self.position[1] / self.map.resolution))
-
-    #     # Check if path has already been planned
-    #     if len(self.path) == 0:
-    #         # Plan path to a random unexplored cell
-    #         unexplored = np.argwhere(self.map.get_map() == 0)
-    #         if len(unexplored) > 0:
-    #             goal = tuple(unexplored[np.random.choice(len(unexplored))])
-    #             self.path = self.plan_path(start, goal)
-    #     else:
-    #         # Check if current position is close enough to current path point
-    #         goal = tuple(self.path[-1])
-    #         dx = (self.position[0] - goal[0] * self.map.resolution) ** 2
-    #         dy = (self.position[1] - goal[1] * self.map.resolution) ** 2
-    #         if sqrt(dx + dy) < 0.5:
-    #             self.path.pop()
-    #         else:
-    #             # Continue following current path
-    #             goal = tuple(self.path[-1])
-
-    #     # Send commands to Rover to follow path
-    #     self.rover_nav.get_steering(gps_data, self.rover_nav.GPS_target)
-
-
-    def find_path(self, start_x, start_y, goal_x, goal_y):
-        def heuristic(a, b):
-            dx = abs(b[0] - a[0])
-            dy = abs(b[1] - a[1])
-            return (dx + dy) + (np.sqrt(2) - 2) * min(dx, dy)
-
-        frontier = PriorityQueue()
-        frontier.put((0, (start_x, start_y)))
-        came_from = {}
-        cost_so_far = {}
-        came_from[(start_x, start_y)] = None
-        cost_so_far[(start_x, start_y)] = 0
-
-        while not frontier.empty():
-            current = frontier.get()[1]
-
-            if current == (goal_x, goal_y):
-                path = [current]
-                while current != (start_x, start_y):
-                    current = came_from[current]
-                    path.append(current)
-                return path[::-1]
-
-            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1)]:
-                neighbor = (current[0] + dx, current[1] + dy)
-
-                if neighbor[0] < 0 or neighbor[0] >= self.map_width or neighbor[1] < 0 or neighbor[1] >= self.map_height:
-                    continue
-
-                if (dx != 0 and dy != 0) and (self.map[current[1], current[0] + dx] < -1 or self.map[current[1] + dy, current[0]] < -1):
-                    continue
-
-                if self.map[neighbor[1], neighbor[0]] < -1:
-                    continue
-
-                new_cost = cost_so_far[current] + 1
-                if neighbor not in cost_so_far or new_cost < cost_so_far[neighbor]:
-                    cost_so_far[neighbor] = new_cost
-                    priority = new_cost + heuristic((goal_x, goal_y), neighbor)
-                    frontier.put((priority, neighbor))
-                    came_from[neighbor] = current
-
-        return None
 
     def move_rover(self):
         #TODO Needs to implent the compass/IMU and GPS to move the rover towards the proper direction and location
