@@ -1,15 +1,15 @@
 import os, sys
 sys.path.insert(0, os.path.abspath(".."))
+from Autonomous_Systems import RoverNavigation
 from queue import PriorityQueue
-import AutoHelp
 from simple_pid import PID
 import time
 import numpy as np
 from math import atan2, sqrt, pi
 from numpy import linalg as la
-import GridMap
+from Autonomous_Systems import GridMap
 import heapq
-imort json
+import json
 
 class KalmanFilter:
     def __init__(self, dt):
@@ -48,6 +48,7 @@ class RoverNavigation:
         self.commands = [0,1,0,'D',0,0]
         self.IMU = IMU
         self.AutoHelp = AutoHelp.AutoHelp()
+        self.kalman_filter = KalmanFilter(0.1)
 
         self.GPS = GPS
         self.GPS_coordinate_map = GPS_coordinate_map
@@ -118,41 +119,46 @@ class RoverNavigation:
 
 
 
-    # def update_position(self):
-    #     # Get GPS and IMU data
-    #     gps_data = self.GPS.get_position()
+    def update_position(self):
+            # Get GPS and IMU data
+        gps_data = self.GPS.get_position()
 
-    #     # Update position using Kalman filter
-    #     z = np.array([[gps_data[0]], [gps_data[1]]])
-    #     self.position = self.filter.predict(self.position)
-    #     self.position = self.filter.update(self.position, z)
+        predicted_trajectory = self.generate_trajectory()
 
-    #     # Update map using SLAM
-    #     self.map.update(self.position[0], self.position[1])
+        # Update position using Kalman filter
+        z = np.array([[gps_data[0]], [gps_data[1]]])
+        self.kalman_filter.predict()
+        self.kalman_filter.update(z, predicted_trajectory)
+        self.position = self.kalman_filter.get_position()
 
-    #     # Plan path using A* algorithm
-    #     start = (int(self.position[0] / self.map.resolution), int(self.position[1] / self.map.resolution))
+        # Update map using SLAM
+        self.map.update(self.position[0], self.position[1])
 
-    #     # Check if path has already been planned
-    #     if len(self.path) == 0:
-    #         # Plan path to a random unexplored cell
-    #         unexplored = np.argwhere(self.map.get_map() == 0)
-    #         if len(unexplored) > 0:
-    #             goal = tuple(unexplored[np.random.choice(len(unexplored))])
-    #             self.path = self.plan_path(start, goal)
-    #     else:
-    #         # Check if current position is close enough to current path point
-    #         goal = tuple(self.path[-1])
-    #         dx = (self.position[0] - goal[0] * self.map.resolution) ** 2
-    #         dy = (self.position[1] - goal[1] * self.map.resolution) ** 2
-    #         if sqrt(dx + dy) < 0.5:
-    #             self.path.pop()
-    #         else:
-    #             # Continue following current path
-    #             goal = tuple(self.path[-1])
+        # Plan path using A* algorithm
+        start = (int(self.position[0] / self.map.resolution), int(self.position[1] / self.map.resolution))
 
-    #     # Send commands to Rover to follow path
-    #     self.rover_nav.get_steering(gps_data, self.rover_nav.GPS_target)
+        # Check if path has already been planned
+        if len(self.path) == 0:
+            # Plan path to a random unexplored cell
+            unexplored = np.argwhere(self.map.get_map() == 0)
+            if len(unexplored) > 0:
+                goal = tuple(unexplored[np.random.choice(len(unexplored))])
+                self.path = self.plan_path(start, goal)
+        else:
+            # Check if current position is close enough to current path point
+            goal = tuple(self.path[-1])
+            dx = (self.position[0] - goal[0] * self.map.resolution) ** 2
+            dy = (self.position[1] - goal[1] * self.map.resolution) ** 2
+            if sqrt(dx + dy) < 0.5:
+                self.path.pop()
+            else:
+                # Continue following current path
+                goal = tuple(self.path[-1])
+
+        # Send commands to Rover to follow path
+        self.follow_path(goal, self.map.get_map())
+
+
 
 
     def plan_path(self, start, goal):
@@ -321,6 +327,8 @@ class RoverNavigation:
         
         return trajectory
         
+
+
 
 
 # THIS SHOULD BE USED TO HAVE THE ROVER GO INTO DIFFERENT MODES SUCH AS SPIN OR TRANSLATE

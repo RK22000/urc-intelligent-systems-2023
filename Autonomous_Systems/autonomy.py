@@ -56,6 +56,7 @@ class Autonomy:
 
         homing_end = {"HB":0,"IO":1,"WO":0,"DM":"D","CMD":[0,0]}
         while True:
+            print("reached here")
             response = self.rover_comms.read_data()
             if homing_end in response:
                 while True:
@@ -70,12 +71,14 @@ class Autonomy:
                         distance = round(self.AutoHelp.get_distance(current_GPS, self.RoverNavigation.GPS_target)[0]*1000, 3)
                         quat_i, quat_j, quat_k, quat_real = self.IMU.get_rotation()
                         self.heading = self.IMU.get_heading(quat_real, quat_i, quat_j, quat_k)
+                        print("Before print statements")
                         print("Current GPS:", current_GPS)
                         print("Target GPS:", self.RoverNavigation.GPS_target)
                         print("Heading:", self.heading)
                         print("Bearing:", bearing)
                         print("Distance from Target GPS:", distance, "Meters")
                         print("Sending Command:", command)
+                        print("After print statements")
                         response = self.rover_comms.read_data()
                         # self.get_rover_status(bearing, distance)
                         if response != "No data received" and command != None:
@@ -83,3 +86,5 @@ class Autonomy:
                     else:
                         print("GPS Error. Current GPS:", current_GPS)
                         time.sleep(1)
+                        
+
