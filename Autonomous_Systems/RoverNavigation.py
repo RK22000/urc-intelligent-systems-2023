@@ -1,8 +1,12 @@
 import os, sys
+import AutoHelp
+import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.abspath(".."))
+from modules.BN08x import BN08x as IMU
+from modules.GPS import gpsRead
 from Autonomous_Systems import RoverNavigation
 from queue import PriorityQueue
-from simple_pid import PID
+#from simple_pid import PID
 import time
 import numpy as np
 from math import atan2, sqrt, pi
@@ -46,7 +50,7 @@ class RoverNavigation:
         self.max_speed = max_speed
         self.max_steering = max_steering
         self.commands = [0,1,0,'D',0,0]
-        self.IMU = IMU
+        self.IMU = IMU()
         self.AutoHelp = AutoHelp.AutoHelp()
         self.kalman_filter = KalmanFilter(0.1)
 
@@ -123,7 +127,8 @@ class RoverNavigation:
             # Get GPS and IMU data
         gps_data = self.GPS.get_position()
 
-        predicted_trajectory = self.generate_trajectory()
+        predicted_trajectory = self.generate_trajectory(self.position, self.GPS_target, self.map)
+
 
         # Update position using Kalman filter
         z = np.array([[gps_data[0]], [gps_data[1]]])
@@ -329,7 +334,45 @@ class RoverNavigation:
         
 
 
+# Create an instance of RoverNavigation
+gps_port = "/dev/ttyACM3"
+serial_baudrate = 38400
+gps_baudrate = 57600
+max_speed = 1
+max_angle = 12
+GPS = gpsRead(gps_port, gps_baudrate)
+GPS_list = [[-121.8818685, 37.33699716666666], [-121.881868, 37.33696233333334], [-121.88177050000002, 37.336928833333324]]
+print("GPS List:", GPS_list)
+rover_nav = RoverNavigation(max_speed, max_angle, GPS, IMU, GPS_list)
 
+# Initialize the map and position
+rover_nav.map = GridMap(width=100, height=100, resolution=0.5)
+rover_nav.position = np.array([0, 0, 0, 0])  # x, y, vx, vy
+
+# Set the desired number of iterations
+num_iterations = 100
+
+# Lists to store x and y positions
+x_positions = []
+y_positions = []
+
+# Main loop for updating position and collecting data
+for i in range(num_iterations):
+    # Update the position
+    rover_nav.update_position()
+    
+    # Collect the position data
+    x_positions.append(rover_nav.position[0])
+    y_positions.append(rover_nav.position[1])
+
+# Plotting the path
+plt.figure(figsize=(8, 6))
+plt.plot(x_positions, y_positions, '-o', color='b')
+plt.xlabel('X position')
+plt.ylabel('Y position')
+plt.title('Rover Navigation Path')
+plt.grid(True)
+plt.show()
 
 # THIS SHOULD BE USED TO HAVE THE ROVER GO INTO DIFFERENT MODES SUCH AS SPIN OR TRANSLATE
 # def get_steering(self, current_GPS, GPS_target):
