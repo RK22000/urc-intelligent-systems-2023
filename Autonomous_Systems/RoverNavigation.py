@@ -1,19 +1,17 @@
 import os, sys
 import AutoHelp
-import matplotlib.pyplot as plt
-sys.path.insert(0, os.path.abspath(".."))
-from modules.BN08x import BN08x as IMU
-from modules.GPS import gpsRead
-from Autonomous_Systems import RoverNavigation
 from queue import PriorityQueue
-#from simple_pid import PID
+from simple_pid import PID
 import time
 import numpy as np
 from math import atan2, sqrt, pi
 from numpy import linalg as la
-from Autonomous_Systems import GridMap
+import GridMap
 import heapq
 import json
+sys.path.append('/home/pi/Repos/urc-intelligent-systems-2023/')
+from modules.GPS import gpsRead
+
 
 class KalmanFilter:
     def __init__(self, dt):
@@ -50,8 +48,8 @@ class RoverNavigation:
         self.max_speed = max_speed
         self.max_steering = max_steering
         self.commands = [0,1,0,'D',0,0]
-        self.IMU = IMU()
-        self.AutoHelp = AutoHelp.AutoHelp()
+        self.IMU = IMU
+        #self.AutoHelp = AutoHelp.AutoHelp()
         self.kalman_filter = KalmanFilter(0.1)
 
         self.GPS = GPS
@@ -77,39 +75,39 @@ class RoverNavigation:
 
 
 
-    def PID_steer(self, commands, steer_output, angle):
-        """Steer the rover using a PID controller"""
+    # def PID_steer(self, commands, steer_output, angle):
+    #     """Steer the rover using a PID controller"""
 
-        speed_error = self.max_steering/abs(steer_output)   # scale speed error based on steering output
-        print("Speed Error:", speed_error)
-        speed_output = self.speed_controller(speed_error)
-        self.commands[4] = round(speed_output)
-        if angle == "right":
-            self.commands[5] = abs(round(steer_output))
-        elif angle == "left":
-            self.commands[5] = -abs(round(steer_output))
-        return self.AutoHelp.jsonify_commands(commands)
+    #     speed_error = self.max_steering/abs(steer_output)   # scale speed error based on steering output
+    #     print("Speed Error:", speed_error)
+    #     speed_output = self.speed_controller(speed_error)
+    #     self.commands[4] = round(speed_output)
+    #     if angle == "right":
+    #         self.commands[5] = abs(round(steer_output))
+    #     elif angle == "left":
+    #         self.commands[5] = -abs(round(steer_output))
+    #     return self.AutoHelp.jsonify_commands(commands)
 
 
-    def forward_drive(self, commands):
-        """Drive the rover forward at max speed"""
+    # def forward_drive(self, commands):
+    #     """Drive the rover forward at max speed"""
 
-        self.commands[4] = self.max_speed
-        self.commands[5] = 0
-        return self.AutoHelp.jsonify_commands(commands)
+    #     self.commands[4] = self.max_speed
+    #     self.commands[5] = 0
+    #     return self.AutoHelp.jsonify_commands(commands)
 
-    def spin(self, commands, angle):
-        self.commands[5] = 0
-        if angle == "right":
-            self.commands[4] = abs(round(self.max_speed/2))
-        elif angle == "left":
-            self.commands[4] = -abs(round(self.max_speed/2))
+    # def spin(self, commands, angle):
+    #     self.commands[5] = 0
+    #     if angle == "right":
+    #         self.commands[4] = abs(round(self.max_speed/2))
+    #     elif angle == "left":
+    #         self.commands[4] = -abs(round(self.max_speed/2))
         
-        return self.AutoHelp.jsonify_commands(commands)
+    #     return self.AutoHelp.jsonify_commands(commands)
 
-    def stop_rover(self, commands):
-        self.commands = [0, 0, 0, 'D', 0, 0]
-        return self.AutoHelp.jsonify_commands(commands)
+    # def stop_rover(self, commands):
+    #     self.commands = [0, 0, 0, 'D', 0, 0]
+    #     return self.AutoHelp.jsonify_commands(commands)
 
     def goto_next_coordinate(self):
         try:
@@ -127,8 +125,7 @@ class RoverNavigation:
             # Get GPS and IMU data
         gps_data = self.GPS.get_position()
 
-        predicted_trajectory = self.generate_trajectory(self.position, self.GPS_target, self.map)
-
+        predicted_trajectory = self.generate_trajectory()
 
         # Update position using Kalman filter
         z = np.array([[gps_data[0]], [gps_data[1]]])
@@ -349,30 +346,6 @@ rover_nav = RoverNavigation(max_speed, max_angle, GPS, IMU, GPS_list)
 rover_nav.map = GridMap(width=100, height=100, resolution=0.5)
 rover_nav.position = np.array([0, 0, 0, 0])  # x, y, vx, vy
 
-# Set the desired number of iterations
-num_iterations = 100
-
-# Lists to store x and y positions
-x_positions = []
-y_positions = []
-
-# Main loop for updating position and collecting data
-for i in range(num_iterations):
-    # Update the position
-    rover_nav.update_position()
-    
-    # Collect the position data
-    x_positions.append(rover_nav.position[0])
-    y_positions.append(rover_nav.position[1])
-
-# Plotting the path
-plt.figure(figsize=(8, 6))
-plt.plot(x_positions, y_positions, '-o', color='b')
-plt.xlabel('X position')
-plt.ylabel('Y position')
-plt.title('Rover Navigation Path')
-plt.grid(True)
-plt.show()
 
 # THIS SHOULD BE USED TO HAVE THE ROVER GO INTO DIFFERENT MODES SUCH AS SPIN OR TRANSLATE
 # def get_steering(self, current_GPS, GPS_target):

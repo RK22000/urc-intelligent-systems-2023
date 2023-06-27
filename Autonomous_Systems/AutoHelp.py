@@ -1,6 +1,9 @@
+import os, sys
 import math
-from modules.LSM303 import Compass
 import json
+sys.path.append('/home/pi/Repos/urc-intelligent-systems-2023/')
+from modules.LSM303 import Compass
+
 
 class AutoHelp:
     def get_distance(self, current_GPS, target_GPS):
