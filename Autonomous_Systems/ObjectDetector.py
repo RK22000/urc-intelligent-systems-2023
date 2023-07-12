@@ -14,40 +14,44 @@ class ObjectDetector:
         self.MaxDistance = MaxDistance
 
     def calculate_objects(self):
-        for camera_boxes, lidar_data in zip(self.stereo_camera.run(visualize=self.VISUALIZE, usbMode='usb2'), self.lidar.run()):
-            x = []
-            y = []
-            for scan in lidar_data:
-                try:
-                    distance, angle = scan
-                    x.append(distance * np.sin(np.radians(angle)))
-                    y.append(distance * np.cos(np.radians(angle)))
-                except:
-                    continue
+        try:
+            for camera_boxes, lidar_data in zip(self.stereo_camera.run(visualize=self.VISUALIZE, usbMode='usb2'), self.lidar.run()):
+                x = []
+                y = []
+                for scan in lidar_data:
+                    try:
+                        distance, angle = scan
+                        x.append(distance * np.sin(np.radians(angle)))
+                        y.append(distance * np.cos(np.radians(angle)))
+                    except:
+                        continue
 
-            X = np.array(list(zip(x, y)))
-            
-            # Identify your object cluster here
-            if np.mean(x) < -0.5:
-                object_cluster = 'Left'
-            elif np.mean(x) > 0.5:
-                object_cluster = 'Right'
-            else:
-                object_cluster = 'Center'
+                X = np.array(list(zip(x, y)))
+                
+                # Identify your object cluster here
+                if np.mean(x) < -0.5:
+                    object_cluster = 'Left'
+                elif np.mean(x) > 0.5:
+                    object_cluster = 'Right'
+                else:
+                    object_cluster = 'Center'
 
-            boxes_to_check = self.get_boxes_to_check(object_cluster)
-            z_val, box_detected = self.get_z_value_and_box(camera_boxes.split('\n'), boxes_to_check)
+                boxes_to_check = self.get_boxes_to_check(object_cluster)
+                z_val, box_detected = self.get_z_value_and_box(camera_boxes.split('\n'), boxes_to_check)
 
-            if z_val is not None:
-                print(f"Detected object in cluster '{object_cluster}'")
-                yield object_cluster, z_val
-            elif box_detected:
-                print(f"Camera only detected object in cluster '{object_cluster}'")
-                yield object_cluster, None
-            else:
-                print(f"No matching box found for cluster '{object_cluster}'")
-        # if either of the stereo_camera.run() or lidar.run() methods break, we need to call lidar.stop_lidar()
-        self.lidar.stop_lidar() 
+                if z_val is not None:
+                    print(f"Detected object in cluster '{object_cluster}'")
+                    yield object_cluster, z_val
+                elif box_detected:
+                    print(f"Camera only detected object in cluster '{object_cluster}'")
+                    yield object_cluster, None
+                else:
+                    print(f"No matching box found for cluster '{object_cluster}'")
+        except Exception as e:
+            print(str(e))
+        finally:
+            # this stops the lidar sensor no matter what when the program ends 
+            self.lidar.stop_lidar()
 
     def get_boxes_to_check(self, object_cluster):
         if object_cluster == 'Center':
