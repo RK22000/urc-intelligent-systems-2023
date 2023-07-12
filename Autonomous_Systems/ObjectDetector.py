@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+import re
 
 sys.path.append('../')
 from Vision.modules.StereoCamera import StereoCamera
@@ -45,6 +46,8 @@ class ObjectDetector:
                 yield object_cluster, None
             else:
                 print(f"No matching box found for cluster '{object_cluster}'")
+        # if either of the stereo_camera.run() or lidar.run() methods break, we need to call lidar.stop_lidar()
+        self.lidar.stop_lidar() 
 
     def get_boxes_to_check(self, object_cluster):
         if object_cluster == 'Center':
@@ -55,6 +58,11 @@ class ObjectDetector:
             return ['Box 3', 'Box 6']
 
     def get_z_value_and_box(self, camera_boxes, boxes_to_check):
+        """
+        Params:
+            boxes_to_check      ["Box #", "Box #"]
+            camera_boxes        "Box #: X: {float}m, Y: {float}m, Z: {float}m"
+        """
         obstacle_detected = False
         min_z_val = None
         if boxes_to_check is None:
@@ -63,8 +71,7 @@ class ObjectDetector:
             for box_data in camera_boxes:
                 if box_name in box_data:
                     try:
-                        z_index = box_data.find("Z:")
-                        z_val_str = box_data[z_index + 3:box_data.find("m", z_index)].strip()
+                        z_val_str = re.search(r"Z: ([^m]+)m?", box_data).group(1)
                         z_val = float(z_val_str)
                         if z_val <= self.MaxDistance:
                             obstacle_detected = True

@@ -27,48 +27,38 @@ class LiDARModule:
             try:
                 self.lidar = RPLidar(self.port_name)  # Try to connect to the Lidar
                 for scan in self.lidar.iter_scans():
-                    try:
-                        x = []
-                        y = []
-                        for (_, angle, distance) in scan:
-                            x.append(distance * np.sin(np.radians(angle)))
-                            y.append(distance * np.cos(np.radians(angle)))
-                        xy = np.array(list(zip(x, y)))
-                        xy_scaled = StandardScaler().fit_transform(xy)
-                        db = DBSCAN(eps=0.3, min_samples=10).fit(xy_scaled)
-                        labels = db.labels_
-                        unique_labels = set(labels)
-                        colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
-                        for k, col in zip(unique_labels, colors):
-                            if k == -1:
-                                col = [0, 0, 0, 1]
-                            class_member_mask = (labels == k)
-                            xy_class = xy[class_member_mask]
-                            self.cluster_points.set_offsets(xy_class)
-                            self.obstacles.append(xy_class)
-                        obstacle_coords = self.get_obstacle_coordinates(position)
-                        for output in obstacle_coords:
-                            yield output
-                        self.points.set_offsets(np.c_[x, y])
-                        if "DISPLAY" in os.environ:
-                            self.fig.canvas.draw()
-                            plt.pause(0.001)
-                    except RPLidarException as e:
-                        if str(e) == 'Incorrect descriptor starting bytes':
-                            continue
-                        if str(e) == 'Wrong body size':
-                            continue
-                        else:
-                            continue
+                    x = []
+                    y = []
+                    for (_, angle, distance) in scan:
+                        x.append(distance * np.sin(np.radians(angle)))
+                        y.append(distance * np.cos(np.radians(angle)))
+                    xy = np.array(list(zip(x, y)))
+                    xy_scaled = StandardScaler().fit_transform(xy)
+                    db = DBSCAN(eps=0.3, min_samples=10).fit(xy_scaled)
+                    labels = db.labels_
+                    unique_labels = set(labels)
+                    colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
+                    for k, col in zip(unique_labels, colors):
+                        if k == -1:
+                            col = [0, 0, 0, 1]
+                        class_member_mask = (labels == k)
+                        xy_class = xy[class_member_mask]
+                        self.cluster_points.set_offsets(xy_class)
+                        self.obstacles.append(xy_class)
+                    obstacle_coords = self.get_obstacle_coordinates(position)
+                    for output in obstacle_coords:
+                        yield output
+                    self.points.set_offsets(np.c_[x, y])
+                    if "DISPLAY" in os.environ:
+                        self.fig.canvas.draw()
+                        plt.pause(0.001)
             except KeyboardInterrupt:
                 print('Stopping.')
-                self.lidar.stop()
-                self.lidar.disconnect()
+                self.stop_lidar()
                 break
             except RPLidarException as e:
                 print(e)
-                self.lidar.stop()
-                self.lidar.disconnect()
+                self.stop_lidar()
                 continue  # If an error occurred, disconnect and then try to reconnect
 
     
@@ -84,8 +74,8 @@ class LiDARModule:
                 obstacle_coords.append(("Center", obstacle))
         return obstacle_coords
 
-    def stop(self):
+    def stop_lidar(self):
         self.lidar.stop()
+        self.lidar.stop_motor()
         self.lidar.disconnect()
-
 
