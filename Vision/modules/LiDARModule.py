@@ -58,7 +58,8 @@ class LiDARModule:
                 break
             except RPLidarException as e:
                 print(e)
-                self.stop_lidar()
+                self.lidar.stop()
+                self.lidar.disconnect()
                 continue  # If an error occurred, disconnect and then try to reconnect
 
     
