@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as anim
 from matplotlib.axes import Axes
 
-PORT_NAME = 'COM5'
+PORT_NAME = 'COM10' # Command to identify port on windows
+                    # Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match '^USB' }
 lidar = RPLidar(PORT_NAME)
 lidar_iter = iter(lidar.iter_scans(max_buf_meas=10000))
 
@@ -27,8 +28,10 @@ scan_data = [0]*360
 fig, axs = plt.subplots(ncols=2, subplot_kw={'projection': 'polar'})
 axl: Axes = axs[0]
 axl.set_title('Upside_down_lidar')
+axl.set_rmax(10)
 axr: Axes = axs[1]
 axr.set_title('Upside_up_lidar')
+axr.set_rmax(10)
 def update(_):
     global lidar, lidar_iter
     try:
